@@ -1,0 +1,87 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-display: "Chivo", system-ui, sans-serif;
+  --font-body: "Work Sans", system-ui, sans-serif;
+  --font-label: "Inter", system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-container: var(--surface-container);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+
+  --radius-card: 0.5rem;
+}
+
+:root {
+  --background: oklch(0.97 0 0);
+  --foreground: oklch(0.18 0.005 250);
+  --surface: oklch(0.98 0 0);
+  --surface-container: oklch(0.93 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.005 250);
+  --primary: oklch(0.55 0.22 27);
+  --primary-foreground: oklch(1 0 0);
+  --muted: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.45 0.01 250);
+  --border: oklch(0.9 0 0);
+  --ink: oklch(0.12 0 0);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body {
+    background-color: oklch(0.15 0 0);
+    color: var(--color-foreground);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@utility phone-shell {
+  width: 100%;
+  max-width: 420px;
+  min-height: 100dvh;
+  margin-inline: auto;
+  background: var(--color-surface);
+  position: relative;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .phone-shell {
+    margin-top: 32px;
+    margin-bottom: 32px;
+    min-height: auto;
+    height: 880px;
+    border-radius: 44px;
+    border: 10px solid #111;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.6);
+  }
+}
+
+/* ── Loading skeleton shimmer ─────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.skeleton-shimmer {
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* ── Hide scrollbar on category pills ─────────────────────────────────────── */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
