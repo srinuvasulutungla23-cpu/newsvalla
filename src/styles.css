@@ -85,3 +85,26 @@
 /* ── Hide scrollbar on category pills ─────────────────────────────────────── */
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* ── AI Voice Waveform Animation ─────────────────────────────────────────── */
+@keyframes audio-wave {
+  0%, 100% { height: 6px; }
+  50% { height: 28px; }
+}
+
+.audio-wave-bar {
+  width: 4px;
+  background-color: var(--color-primary);
+  border-radius: 2px;
+  animation: audio-wave 1.2s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+.audio-wave-bar:nth-child(1) { animation-delay: 0.1s; }
+.audio-wave-bar:nth-child(2) { animation-delay: 0.25s; }
+.audio-wave-bar:nth-child(3) { animation-delay: 0.4s; }
+.audio-wave-bar:nth-child(4) { animation-delay: 0.15s; }
+.audio-wave-bar:nth-child(5) { animation-delay: 0.3s; }
+.audio-wave-bar:nth-child(6) { animation-delay: 0.45s; }
+.audio-wave-bar:nth-child(7) { animation-delay: 0.2s; }
+

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState, type TouchEvent, type WheelEvent } from "react";
+import { useRef, useState, useEffect, type TouchEvent, type WheelEvent } from "react";
 import {
   Menu,
   Search,
@@ -13,9 +13,24 @@ import {
   AlertCircle,
   Newspaper,
   BookOpen,
+  Sparkles,
+  Play,
+  Pause,
+  Square,
+  Volume2,
+  VolumeX,
+  HelpCircle,
 } from "lucide-react";
 import { useNews } from "@/hooks/use-news";
-import type { Article } from "@/lib/news-api";
+import { fetchAISummary, type Article } from "@/lib/news-api";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+
 
 export const Route = createFileRoute("/feed")({
   head: () => ({
@@ -63,11 +78,176 @@ function Feed() {
   const wheelLock = useRef(false);
   const categoryRef = useRef<HTMLDivElement>(null);
 
+  // ── AI News Assistant State ──────────────────────────────────────────────────
+  const [isAISheetOpen, setIsAISheetOpen] = useState(false);
+  const [aiSummary, setAiSummary] = useState<{ bullets: string[]; raw: string } | null>(null);
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  // Audio / Speech Synthesis State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [speakMode, setSpeakMode] = useState<"article" | "summary">("summary");
+  const [speechSpeed, setSpeechSpeed] = useState(1);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
+  const [speechProgress, setSpeechProgress] = useState(0);
+
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const { data: articles, isLoading, isError, error, refetch } = useNews(category);
   const stories = articles ?? [];
   const story = stories[index] as Article | undefined;
+
+  // Load voices when component mounts
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    const loadVoices = () => {
+      const allVoices = window.speechSynthesis.getVoices();
+      const englishVoices = allVoices.filter(
+        (v) => v.lang.startsWith("en") || v.lang.startsWith("en-")
+      );
+      setVoices(englishVoices.length > 0 ? englishVoices : allVoices);
+      if (englishVoices.length > 0 && !selectedVoice) {
+        // Try to find a premium or natural sounding voice
+        const GoogleVoice = englishVoices.find((v) => v.name.includes("Google"));
+        const NaturalVoice = englishVoices.find((v) => v.name.includes("Natural"));
+        setSelectedVoice((GoogleVoice || NaturalVoice || englishVoices[0]).name);
+      } else if (allVoices.length > 0 && !selectedVoice) {
+        setSelectedVoice(allVoices[0].name);
+      }
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [selectedVoice]);
+
+  // Load summary when sheet is opened or when active story changes
+  useEffect(() => {
+    if (isAISheetOpen && story) {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      setIsPlaying(false);
+      setIsPaused(false);
+      setSpeechProgress(0);
+      setAiSummary(null);
+
+      const loadSummary = async () => {
+        setIsSummaryLoading(true);
+        setSummaryError(null);
+        try {
+          const res = await fetchAISummary({
+            data: {
+              id: story.id,
+              headline: story.headline,
+              summary: story.summary,
+              category: story.category,
+            },
+          });
+          setAiSummary(res);
+        } catch (err: any) {
+          setSummaryError(err.message || "Failed to generate AI summary");
+        } finally {
+          setIsSummaryLoading(false);
+        }
+      };
+
+      loadSummary();
+    }
+  }, [isAISheetOpen, index, story]);
+
+  const speakText = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utteranceRef.current = utterance;
+
+    if (selectedVoice) {
+      const voice = voices.find((v) => v.name === selectedVoice);
+      if (voice) utterance.voice = voice;
+    }
+
+    utterance.rate = speechSpeed;
+
+    utterance.onstart = () => {
+      setIsPlaying(true);
+      setIsPaused(false);
+      setSpeechProgress(0);
+    };
+
+    utterance.onend = () => {
+      setIsPlaying(false);
+      setIsPaused(false);
+      setSpeechProgress(100);
+    };
+
+    utterance.onerror = () => {
+      setIsPlaying(false);
+      setIsPaused(false);
+    };
+
+    const totalLength = text.length;
+    utterance.onboundary = (event) => {
+      if (event.name === "word") {
+        const progress = (event.charIndex / totalLength) * 100;
+        setSpeechProgress(Math.min(98, Math.round(progress)));
+      }
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const togglePlay = () => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    if (isPlaying) {
+      if (isPaused) {
+        window.speechSynthesis.resume();
+        setIsPaused(false);
+      } else {
+        window.speechSynthesis.pause();
+        setIsPaused(true);
+      }
+    } else {
+      let textToSpeak = "";
+      if (speakMode === "summary") {
+        textToSpeak = `Here is the AI summary. ${aiSummary?.bullets?.join(". ") || "Generating summary, please wait."}`;
+      } else {
+        textToSpeak = `Reading full headline. ${story?.headline}. ${story?.summary}. Source: ${story?.source || ""}`;
+      }
+      speakText(textToSpeak);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+      setIsPaused(false);
+      setSpeechProgress(0);
+    }
+  };
+
+  const handleSheetOpenChange = (open: boolean) => {
+    setIsAISheetOpen(open);
+    if (!open) {
+      stopSpeaking();
+    }
+  };
+
   const total = stories.length;
   const progress = total > 0 ? ((index + 1) / total) * 100 : 0;
+
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -231,7 +411,7 @@ function Feed() {
                   {story.summary}
                 </p>
               </div>
-              <div className="mt-3 flex">
+              <div className="mt-3 flex gap-2">
                 <a
                   href={story.url}
                   target="_blank"
@@ -241,7 +421,15 @@ function Feed() {
                   <BookOpen size={14} />
                   Read full story
                 </a>
+                <button
+                  onClick={() => setIsAISheetOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 hover:opacity-90 px-3.5 py-1.5 rounded-full transition-all duration-200 shadow-md shadow-fuchsia-500/25 cursor-pointer"
+                >
+                  <Sparkles size={14} className="animate-pulse" />
+                  AI Summary & Listen
+                </button>
               </div>
+
             </div>
 
             <div className="mx-5 border-t border-border shrink-0" />
@@ -312,9 +500,261 @@ function Feed() {
         <NavItem icon={<Bookmark size={22} />} label="Bookmarks" />
         <NavItem icon={<User size={22} />} label="Profile" />
       </nav>
+
+      {/* ── AI News Assistant Bottom Sheet ──────────────────────────────── */}
+      <Sheet open={isAISheetOpen} onOpenChange={handleSheetOpenChange}>
+        <SheetContent
+          side="bottom"
+          className="h-[80%] max-h-[640px] rounded-t-3xl border-t border-border bg-gradient-to-b from-background to-surface p-0 flex flex-col overflow-hidden max-w-[420px] mx-auto z-50"
+        >
+          <SheetHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 text-left">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gradient-to-tr from-violet-600 to-fuchsia-600 rounded-lg text-white">
+                  <Sparkles size={18} className="animate-pulse" />
+                </div>
+                <SheetTitle className="text-xl font-display font-extrabold bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 bg-clip-text text-transparent">
+                  AI News Assistant
+                </SheetTitle>
+              </div>
+
+              {/* Animated waveform visualizer when playing */}
+              {isPlaying && !isPaused && (
+                <div className="flex items-end gap-[3px] h-7 px-2">
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                  <div className="audio-wave-bar" />
+                </div>
+              )}
+            </div>
+            <SheetDescription className="text-xs text-muted-foreground mt-1">
+              AI text-to-speech audio reader & key takeaways
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* Drawer Body */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+            {/* Mode selection + TTS Controls Card */}
+            <div className="bg-surface-container/60 border border-border/80 rounded-2xl p-4 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b border-border/50 pb-3">
+                <span className="text-xs font-semibold text-ink/80">Reading Mode</span>
+                <div className="flex bg-surface border border-border p-0.5 rounded-lg">
+                  <button
+                    onClick={() => {
+                      setSpeakMode("summary");
+                      stopSpeaking();
+                    }}
+                    className={`px-3 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      speakMode === "summary"
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-ink"
+                    }`}
+                  >
+                    AI Summary
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSpeakMode("article");
+                      stopSpeaking();
+                    }}
+                    className={`px-3 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      speakMode === "article"
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-ink"
+                    }`}
+                  >
+                    Full Story
+                  </button>
+                </div>
+              </div>
+
+              {/* TTS Controls */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
+                  {/* Play / Pause button */}
+                  <button
+                    onClick={togglePlay}
+                    disabled={speakMode === "summary" && isSummaryLoading}
+                    className="h-12 w-12 flex items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/25 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isPlaying && !isPaused ? (
+                      <Pause size={20} />
+                    ) : (
+                      <Play size={20} className="ml-0.5" />
+                    )}
+                  </button>
+
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex justify-between text-[11px] font-semibold text-muted-foreground">
+                      <span>
+                        {isPlaying
+                          ? isPaused
+                            ? "Paused"
+                            : "Reading aloud..."
+                          : "Ready to play"}
+                      </span>
+                      <span>{Math.round(speechProgress)}%</span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${speechProgress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Stop button */}
+                  {(isPlaying || isPaused) && (
+                    <button
+                      onClick={stopSpeaking}
+                      className="h-9 w-9 flex items-center justify-center rounded-full border border-border bg-surface text-ink hover:bg-surface-container transition-all cursor-pointer"
+                    >
+                      <Square size={14} className="fill-ink" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Speed & Voice select */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  {/* Speed options */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Speed
+                    </span>
+                    <div className="flex bg-surface border border-border p-0.5 rounded-lg justify-between">
+                      {[1, 1.25, 1.5].map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setSpeechSpeed(s);
+                            if (isPlaying && !isPaused) {
+                              let textToSpeak = "";
+                              if (speakMode === "summary") {
+                                textToSpeak = `Here is the AI summary. ${aiSummary?.bullets?.join(". ") || ""}`;
+                              } else {
+                                textToSpeak = `Reading full headline. ${story?.headline}. ${story?.summary}.`;
+                              }
+                              speakText(textToSpeak);
+                            }
+                          }}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                            speechSpeed === s
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {s}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Voice Options */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Voice
+                    </span>
+                    <select
+                      value={selectedVoice || ""}
+                      onChange={(e) => {
+                        setSelectedVoice(e.target.value);
+                        if (isPlaying && !isPaused) {
+                          let textToSpeak = "";
+                          if (speakMode === "summary") {
+                            textToSpeak = `Here is the AI summary. ${aiSummary?.bullets?.join(". ") || ""}`;
+                          } else {
+                            textToSpeak = `Reading full headline. ${story?.headline}. ${story?.summary}.`;
+                          }
+                          setTimeout(() => speakText(textToSpeak), 50);
+                        }
+                      }}
+                      className="w-full bg-surface border border-border px-2 py-1.5 rounded-lg text-[10px] font-medium text-ink focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {voices.slice(0, 8).map((v) => (
+                        <option key={v.name} value={v.name}>
+                          {v.name
+                            .replace("Microsoft", "")
+                            .replace("Google", "")
+                            .replace("Desktop", "")
+                            .trim()}
+                        </option>
+                      ))}
+                      {voices.length === 0 && <option>Default voice</option>}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Bullet points Summary Container */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Sparkles size={12} className="text-primary" />
+                Key Takeaways
+              </h3>
+
+              {isSummaryLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="flex gap-3 bg-surface-container/30 border border-border/50 rounded-xl p-3.5 animate-pulse"
+                    >
+                      <div className="w-5 h-5 rounded-full bg-surface-container shrink-0 mt-0.5" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3.5 bg-surface-container rounded-md w-[90%]" />
+                        <div className="h-3.5 bg-surface-container rounded-md w-[60%]" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : summaryError ? (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 text-center">
+                  <AlertCircle size={24} className="text-destructive mx-auto mb-2" />
+                  <p className="text-xs text-destructive font-medium">{summaryError}</p>
+                </div>
+              ) : aiSummary ? (
+                <div className="space-y-3">
+                  {aiSummary.bullets.map((bullet, idx) => {
+                    const iconColor =
+                      idx === 0
+                        ? "bg-violet-500/10 text-violet-600"
+                        : idx === 1
+                          ? "bg-fuchsia-500/10 text-fuchsia-600"
+                          : "bg-pink-500/10 text-pink-600";
+                    return (
+                      <div
+                        key={idx}
+                        className="flex gap-3 bg-surface border border-border/60 hover:border-primary/30 transition-all rounded-xl p-3.5 shadow-sm group"
+                      >
+                        <div
+                          className={`w-6 h-6 rounded-full ${iconColor} flex items-center justify-center shrink-0 mt-0.5 text-xs font-extrabold font-display`}
+                        >
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold text-ink leading-relaxed">
+                            {bullet}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
+
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 

@@ -128,3 +128,81 @@ export const fetchTopHeadlines = createServerFn({ method: "GET" })
 
     return articles;
   });
+
+export const fetchAISummary = createServerFn({ method: "POST" })
+  .validator(
+    (input: {
+      id: string;
+      headline: string;
+      summary: string;
+      category?: string;
+    }) => input
+  )
+  .handler(async ({ data }) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (apiKey) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `Summarize the following news article into exactly 3 bullet points (Key Takeaway, Context/Background, Next Steps/Impact). Make it very clear, punchy, and modern. Output only the bullet points, no extra headers or introductory text.
+                      Headline: ${data.headline}
+                      Summary: ${data.summary}
+                      Category: ${data.category || "General"}`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 300,
+              },
+            }),
+          }
+        );
+
+        const resJson = await response.json();
+        const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const bullets = text
+            .split("\n")
+            .map((line: string) => line.replace(/^[\s*-•\d+.]*/, "").trim())
+            .filter((line: string) => line.length > 0);
+
+          if (bullets.length >= 3) {
+            return {
+              bullets: bullets.slice(0, 3),
+              raw: text,
+            };
+          }
+        }
+      } catch (err) {
+        console.error("Gemini API call failed, falling back to smart summary", err);
+      }
+    }
+
+    // Fallback smart summary generator
+    const { headline, summary } = data;
+    const cleanedHeadline = headline.replace(/\s+-\s+[^:-]+$/, "");
+    const bullets = [
+      `Key Takeaway: ${cleanedHeadline}.`,
+      `Context: ${summary.length > 120 ? summary.slice(0, 120) + "..." : summary}`,
+      `Impact: Important developments in ${data.category?.toLowerCase() || "general"} topics. Tap the source link for the full report.`,
+    ];
+
+    return {
+      bullets,
+      raw: bullets.join("\n"),
+    };
+  });
+
