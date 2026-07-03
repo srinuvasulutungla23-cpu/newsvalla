@@ -441,7 +441,7 @@ function Feed() {
                   {story.source}
                 </p>
                 <p className="font-label text-[11px] text-muted-foreground mt-1">
-                  {story.time} • {story.readMin} min read
+                  {/* Timing metadata removed as requested */}
                 </p>
               </div>
               <div className="flex items-center gap-4 text-primary">
@@ -780,7 +780,6 @@ function LoadingSkeleton() {
       <div className="px-5 py-3 flex justify-between">
         <div className="space-y-2">
           <div className="h-3 bg-surface-container rounded w-24" />
-          <div className="h-3 bg-surface-container rounded w-32" />
         </div>
         <div className="flex gap-4">
           <div className="w-5 h-5 bg-surface-container rounded-full" />
