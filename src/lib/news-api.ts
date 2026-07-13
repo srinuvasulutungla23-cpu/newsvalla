@@ -86,6 +86,53 @@ function mapToArticle(article: NewsAPIArticle, category: string): Article {
 export const fetchTopHeadlines = createServerFn({ method: "GET" })
   .validator((input: { category?: string; country?: string }) => input)
   .handler(async ({ data }) => {
+    if (data?.category === "telugu") {
+      try {
+        const response = await fetch("https://telugu.way2news.com/");
+        const html = await response.text();
+
+        const newsItems: Article[] = [];
+        const itemRegex = /<div class="newsItem">([\s\S]*?)<\/div>\s*<\/div>/gi;
+        let match;
+        let index = 0;
+        while ((match = itemRegex.exec(html)) !== null) {
+          const block = match[1];
+
+          // Extract title & link
+          const titleMatch = block.match(/<h1>\s*<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>\s*<\/h1>/i);
+          const link = titleMatch ? titleMatch[1] : "";
+          const title = titleMatch ? titleMatch[2].trim() : "";
+
+          // Extract image
+          const imgMatch = block.match(/<img[^>]+src="([^"]+)"/i);
+          const image = imgMatch ? imgMatch[1] : null;
+
+          // Extract description
+          const descMatch = block.match(/<p>([\s\S]*?)<\/p>/i);
+          const summary = descMatch ? descMatch[1].replace(/<[^>]+>/g, "").trim() : "";
+
+          if (title && summary) {
+            newsItems.push({
+              id: `way2news-${index}-${title.slice(0, 15)}`,
+              category: "TELUGU",
+              image,
+              headline: title,
+              summary: summary,
+              source: "WAY2NEWS",
+              time: "Today",
+              readMin: Math.max(1, Math.ceil(summary.split(/\s+/).length / 200)),
+              url: link || "https://telugu.way2news.com/",
+            });
+            index++;
+          }
+        }
+        return newsItems;
+      } catch (err) {
+        console.error("Failed to fetch or parse Way2News Telugu:", err);
+        throw new Error("Failed to fetch Telugu news from Way2News");
+      }
+    }
+
     // Try both naming conventions for the env var
     const apiKey =
       process.env.NEWS_API_KEY ||
