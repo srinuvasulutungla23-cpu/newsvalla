@@ -51,7 +51,6 @@ export const Route = createFileRoute("/feed")({
 const CATEGORIES = [
   { id: "general", label: "General" },
   { id: "telugu", label: "Telugu" },
-  { id: "way2news", label: "Way2News (EN)" },
   { id: "technology", label: "Tech" },
   { id: "business", label: "Business" },
   { id: "sports", label: "Sports" },

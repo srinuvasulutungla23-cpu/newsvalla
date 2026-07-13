@@ -133,60 +133,6 @@ export const fetchTopHeadlines = createServerFn({ method: "GET" })
       }
     }
 
-    if (data?.category === "way2news") {
-      try {
-        const response = await fetch("https://www.way2news.com/");
-        const html = await response.text();
-
-        const newsItems: Article[] = [];
-        const itemRegex = /<div class="blg-bx">([\s\S]*?)<\/div>\s*<\/div>/gi;
-        let match;
-        let index = 0;
-        while ((match = itemRegex.exec(html)) !== null) {
-          const block = match[1];
-
-          // Extract link
-          const linkMatch = block.match(/<a href="([^"]+)"/i);
-          const link = linkMatch ? linkMatch[1] : "";
-
-          // Extract image
-          const imgMatch = block.match(/<img[^>]+src="([^"]+)"/i);
-          const image = imgMatch ? imgMatch[1] : null;
-
-          // Extract title
-          const titleMatch = block.match(/<p class="roboto-c">([\s\S]*?)<\/p>/i);
-          const title = titleMatch ? titleMatch[1].trim() : "";
-
-          // Extract summary
-          const descMatch = block.match(/<p class="tx1">([\s\S]*?)<\/p>/i);
-          const summary = descMatch ? descMatch[1].replace(/<[^>]+>/g, "").trim() : "";
-
-          // Extract date
-          const dateMatch = block.match(/<span>([^<]+)<\/span>/i);
-          const date = dateMatch ? dateMatch[1].trim() : "Today";
-
-          if (title && summary) {
-            newsItems.push({
-              id: `way2news-en-${index}-${title.slice(0, 15)}`,
-              category: "WAY2NEWS",
-              image,
-              headline: title,
-              summary: summary,
-              source: "WAY2NEWS",
-              time: date,
-              readMin: Math.max(1, Math.ceil(summary.split(/\s+/).length / 200)),
-              url: link || "https://www.way2news.com/",
-            });
-            index++;
-          }
-        }
-        return newsItems;
-      } catch (err) {
-        console.error("Failed to fetch or parse Way2News English:", err);
-        throw new Error("Failed to fetch English news from Way2News");
-      }
-    }
-
     // Try both naming conventions for the env var
     const apiKey =
       process.env.NEWS_API_KEY ||
