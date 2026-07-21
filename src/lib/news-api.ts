@@ -33,6 +33,29 @@ type NewsAPIResponse = {
   message?: string;
 };
 
+// NewsData.io response types
+type NewsDataArticle = {
+  article_id: string;
+  title: string;
+  description: string | null;
+  content: string | null;
+  link: string;
+  image_url: string | null;
+  source_name: string;
+  pubDate: string | null;
+  category: string[] | null;
+  language: string;
+};
+
+type NewsDataResponse = {
+  status: string;
+  totalResults: number;
+  results: NewsDataArticle[];
+  nextPage?: string;
+  message?: string;
+  code?: string;
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function getRelativeTime(dateString: string): string {
@@ -175,6 +198,119 @@ export const fetchTopHeadlines = createServerFn({ method: "GET" })
 
     return articles;
   });
+
+// ── NewsData.io & Live Telugu Feed ──────────────────────────────────────────────
+// Tries NewsData.io first. If Unauthorized (401) or failing, seamlessly falls back
+// to live Google News Telugu RSS & Way2News so the Telugu feed NEVER breaks.
+
+async function fetchTeluguGoogleNews(): Promise<Article[]> {
+  const response = await fetch("https://news.google.com/rss?hl=te-IN&gl=IN&ceid=IN:te");
+  const xml = await response.text();
+
+  const newsItems: Article[] = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  let match;
+  let index = 0;
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const block = match[1];
+
+    const titleMatch = block.match(/<title>([\s\S]*?)<\/title>/i);
+    const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/i);
+    const pubDateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+    const sourceMatch = block.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+
+    const rawTitle = titleMatch ? titleMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() : "";
+    const link = linkMatch ? linkMatch[1].trim() : "https://news.google.com";
+    const pubDate = pubDateMatch ? pubDateMatch[1].trim() : "";
+    const source = sourceMatch ? sourceMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() : "TELUGU NEWS";
+
+    if (rawTitle) {
+      // Split title into headline and source if formatted as "Headline - Source"
+      const titleParts = rawTitle.split(/\s+-\s+/);
+      const headline = titleParts.length > 1 ? titleParts.slice(0, -1).join(" - ") : rawTitle;
+      const displaySource = source !== "TELUGU NEWS" ? source : (titleParts[titleParts.length - 1] || "TELUGU NEWS");
+
+      newsItems.push({
+        id: `gnews-te-${index}-${headline.slice(0, 15)}`,
+        category: "TELUGU",
+        image: null,
+        headline: headline,
+        summary: `తెలుగు లైవ్ అప్‌డేట్: ${headline}. పూర్తి వివరాల కోసం ఆర్టికల్ చదవండి.`, // Telugu live summary
+        source: displaySource.toUpperCase(),
+        time: pubDate ? getRelativeTime(pubDate) : "Today",
+        readMin: 1,
+        url: link,
+      });
+      index++;
+    }
+  }
+
+  return newsItems;
+}
+
+export const fetchTeluguNewsData = createServerFn({ method: "GET" })
+  .validator((input: Record<string, never>) => input)
+  .handler(async () => {
+    const apiKey =
+      process.env.VITE_NEWSDATA_API_KEY ||
+      process.env.NEWSDATA_API_KEY;
+
+    if (apiKey) {
+      try {
+        const url = new URL("https://newsdata.io/api/1/latest");
+        url.searchParams.set("apikey", apiKey);
+        url.searchParams.set("language", "te");
+        url.searchParams.set("country", "in");
+        url.searchParams.set("size", "10");
+
+        const res = await fetch(url.toString());
+
+        if (res.ok) {
+          const json: NewsDataResponse = await res.json();
+          if (json.status === "success" && json.results && json.results.length > 0) {
+            return json.results
+              .filter(
+                (a) =>
+                  a.title &&
+                  a.title !== "[Removed]" &&
+                  a.link &&
+                  a.link !== "https://removed.com"
+              )
+              .map((a): Article => ({
+                id: a.article_id || `nd-${a.source_name}-${a.title?.slice(0, 20)}`,
+                category: "TELUGU",
+                image: a.image_url || null,
+                headline: a.title,
+                summary:
+                  a.description ||
+                  a.content?.replace(/\[\+\d+ chars\]/, "").slice(0, 200) ||
+                  "చదవడానికి ట్యాప్ చేయండి.",
+                source: a.source_name?.toUpperCase() || "NEWSDATA",
+                time: a.pubDate ? getRelativeTime(a.pubDate) : "Today",
+                readMin: estimateReadMin(a.content || a.description),
+                url: a.link,
+              }));
+          }
+        }
+        console.warn(`NewsData.io returned status ${res.status}. Falling back to Google News Telugu feed.`);
+      } catch (err) {
+        console.warn("NewsData.io fetch failed, falling back to Google News Telugu feed:", err);
+      }
+    }
+
+    // Fallback to Google News Telugu RSS feed
+    try {
+      const liveItems = await fetchTeluguGoogleNews();
+      if (liveItems.length > 0) return liveItems;
+    } catch (err) {
+      console.error("Google News Telugu RSS fallback failed:", err);
+    }
+
+    // Secondary fallback to Way2News
+    return fetchTopHeadlines({ data: { category: "telugu" } });
+  });
+
 
 export const fetchAISummary = createServerFn({ method: "POST" })
   .validator(

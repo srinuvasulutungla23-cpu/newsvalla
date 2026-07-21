@@ -21,7 +21,7 @@ import {
   VolumeX,
   HelpCircle,
 } from "lucide-react";
-import { useNews } from "@/hooks/use-news";
+import { useNews, useTeluguNews } from "@/hooks/use-news";
 import { fetchAISummary, type Article } from "@/lib/news-api";
 import {
   Sheet,
@@ -96,7 +96,14 @@ function Feed() {
 
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  const { data: articles, isLoading, isError, error, refetch } = useNews(category);
+  // General news via NewsAPI; Telugu news via NewsData.io (language=te&country=in)
+  const generalQuery = useNews(category === "telugu" ? undefined : category);
+  const teluguQuery  = useTeluguNews();
+
+  const isTeluguTab = category === "telugu";
+  const activeQuery  = isTeluguTab ? teluguQuery : generalQuery;
+
+  const { data: articles, isLoading, isError, error, refetch } = activeQuery;
   const stories = articles ?? [];
   const story = stories[index] as Article | undefined;
 
@@ -324,13 +331,21 @@ function Feed() {
           <button
             key={cat.id}
             onClick={() => handleCategoryChange(cat.id)}
-            className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-[12px] font-label font-semibold tracking-wide transition-all duration-200 ${
+            className={`relative whitespace-nowrap px-3.5 py-1.5 rounded-full text-[12px] font-label font-semibold tracking-wide transition-all duration-200 ${
               category === cat.id
                 ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
                 : "bg-surface-container text-muted-foreground hover:text-ink"
             }`}
           >
             {cat.label}
+            {cat.id === "telugu" && (
+              <span
+                className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
+                  category === "telugu" ? "bg-white" : "bg-red-500"
+                } animate-pulse`}
+                aria-label="Live Telugu feed"
+              />
+            )}
           </button>
         ))}
       </div>
